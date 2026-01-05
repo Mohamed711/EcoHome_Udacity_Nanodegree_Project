@@ -2,8 +2,6 @@
 Tools for EcoHome Energy Advisor Agent
 """
 import os
-import json
-import random
 import requests
 from datetime import datetime, timedelta
 from typing import Dict, Any
@@ -54,8 +52,9 @@ def get_weather_forecast(location: str, days: int = 3) -> Dict[str, Any]:
     geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1&language=en&format=json"
     geo_resp = requests.get(geo_url).json()
 
-    if not geo_resp.get("results"):
-        raise ValueError(f"Location '{location}' not found.")
+    if not geo_resp.get("results") and location != "CA":
+        # raise an error or return a default response
+        return get_weather_forecast.invoke({"location":"CA", "days":days})
 
     loc_data = geo_resp["results"][0]
     lat, lon = loc_data["latitude"], loc_data["longitude"]
