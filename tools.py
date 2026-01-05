@@ -4,6 +4,7 @@ Tools for EcoHome Energy Advisor Agent
 import os
 import json
 import random
+import requests
 from datetime import datetime, timedelta
 from typing import Dict, Any
 from langchain_core.tools import tool
@@ -50,9 +51,66 @@ def get_weather_forecast(location: str, days: int = 3) -> Dict[str, Any]:
             ]
         }
     """
-    # Mock weather API or call OpenWeatherMap or similar
-    
-    return 
+    # 1. Geocoding: Get Lat/Lon from location string
+    geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1&language=en&format=json"
+    geo_resp = requests.get(geo_url).json()
+
+    if not geo_resp.get("results"):
+        raise ValueError(f"Location '{location}' not found.")
+
+    loc_data = geo_resp["results"][0]
+    lat, lon = loc_data["latitude"], loc_data["longitude"]
+    timezone = loc_data.get("timezone", "auto")
+
+    # 2. Fetch Weather & Solar Data
+    # shortwave_radiation is the Global Horizontal Irradiance (GHI) in W/m²
+    weather_url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "current": ["temperature_2m", "relative_humidity_2m", "weather_code", "wind_speed_10m"],
+        "hourly": ["temperature_2m", "relative_humidity_2m", "weather_code", "wind_speed_10m", "shortwave_radiation"],
+        "timezone": timezone,
+        "forecast_days": days
+    }
+
+    data = requests.get(weather_url, params=params).json()
+
+    # Helper to map WMO codes to your requested categories
+    def map_condition(code: int) -> str:
+        if code <= 1: return "sunny"
+        if code <= 3: return "partly_cloudy"
+        return "cloudy"
+
+    # 3. Format the response
+    current = data["current"]
+    hourly = data["hourly"]
+
+    forecast = {
+        "location": f"{location}",
+        "forecast_days": days,
+        "current": {
+            "temperature_c": current["temperature_2m"],
+            "condition": map_condition(current["weather_code"]),
+            "humidity": current["relative_humidity_2m"],
+            "wind_speed": current["wind_speed_10m"]
+        },
+        "hourly": []
+    }
+
+    # Build the hourly list
+    for i, time_str in enumerate(hourly["time"]):
+        dt = datetime.fromisoformat(time_str)
+        forecast["hourly"].append({
+            "hour": dt.hour,
+            "temperature_c": hourly["temperature_2m"][i],
+            "condition": map_condition(hourly["weather_code"][i]),
+            "solar_irradiance": hourly["shortwave_radiation"][i],  # W/m²
+            "humidity": hourly["relative_humidity_2m"][i],
+            "wind_speed": hourly["wind_speed_10m"][i]
+        })
+
+    return forecast
 
 # TODO: Implement get_electricity_prices tool
 @tool
